@@ -1,0 +1,57 @@
+machine class:
+{
+        Number of machines: 8
+        CPU type: X86
+        Number of cores: 12
+        Memory: 24576
+        S-States: [150, 120, 100, 70, 40, 20, 0]
+        P-States: [14, 10, 6, 4]
+        C-States: [14, 5, 2, 0]
+        MIPS: [3500, 3000, 2500, 2000]
+        GPUs: yes
+}
+
+task class:
+{
+        Start time: 100000
+        End time : 12000000
+        Inter arrival: 180000
+        Expected runtime: 1300000
+        Memory: 10
+        VM type: LINUX
+        GPU enabled: yes
+        SLA type: SLA2
+        CPU type: X86
+        Task type: ML
+        Seed: 937462
+}
+
+task class:
+{
+        Start time: 4000000
+        End time : 6000000
+        Inter arrival: 8000
+        Expected runtime: 5000000
+        Memory: 6
+        VM type: LINUX
+        GPU enabled: no
+        SLA type: SLA1
+        CPU type: X86
+        Task type: BATCH
+        Seed: 482937
+}
+
+task class:
+{
+        Start time: 10000000
+        End time : 14000000
+        Inter arrival: 6000
+        Expected runtime: 4000000
+        Memory: 8
+        VM type: LINUX
+        GPU enabled: no
+        SLA type: SLA0
+        CPU type: X86
+        Task type: STREAM
+        Seed: 583920
+}
