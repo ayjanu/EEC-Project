@@ -11,6 +11,8 @@
 #include <climits>
 #include "Internal_Interfaces.h"
 
+// CLAUDE AI used to debug and add logging functions
+
 // Global Scheduler instance
 static Scheduler scheduler;
 
