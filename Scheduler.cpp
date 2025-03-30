@@ -11,7 +11,7 @@
 #include <climits>
 #include "Internal_Interfaces.h"
 
-// CLAUDE AI used to debug and add logging functions
+// The following code was written by Ayan Jannu and Leul Teka and simplified/cleaned and commented by Claude 3.7
 
 // Global Scheduler instance
 static Scheduler scheduler;
