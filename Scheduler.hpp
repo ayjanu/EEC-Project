@@ -34,6 +34,7 @@ public:
         vms.push_back(vm);
     }
     void ConsolidateVMs(Time_t now);
+    bool AssignTaskToVM(TaskId_t task_id, Time_t now);
     
     Scheduler() {}
     void Init();
@@ -53,10 +54,12 @@ private:
     
     // Track which machines are powered on
     std::set<MachineId_t> activeMachines;
+    std::set<TaskId_t> pendingTasks;
     
     // Lists of VMs and machines
     std::vector<VMId_t> vms;
     std::vector<MachineId_t> machines;
+
 };
 
 #endif /* Scheduler_hpp */
