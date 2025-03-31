@@ -11,8 +11,9 @@
 #include <iostream>
 #include <climits>
 
-// The following code was written by Ayan Jannu and Leul Teka and simplified/cleaned and commented by Claude 3.7
-// Thank you to the LLM for combining redundant code into helper methods and providing the debug logic.
+// The following code was written by Ayan Jannu and Leul Teka and cleaned/simplified by Claude 3.7.
+// Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
+// describing the processes being carried out as well as combining redudant code into helper functions.
 
 // Global Scheduler instance
 static Scheduler scheduler;
