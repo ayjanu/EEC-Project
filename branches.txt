@@ -1,0 +1,12 @@
+e-eco 
+    - Use as minimal amount of active machines as possible. Maintain a standby set and inactive set. Uses DVFS.
+nvidia
+    - All gas. No brakes. Finish tasks as fast as possible using the maximum resources.
+pmap
+    - Tasks are assigned using the parallel MapReduce strategy aiming for balanced allocation across machines.
+round-robin
+    - Every machine gets their turn to take a task and they keep doing it in that order until done.
+shortest-first
+    - Tasks are sorted into pending priority queue by target completion time and then executed.
+stack-based-first-fit
+    - Tasks are allocated LIFO to the first available machine and VM capable of taking it.
