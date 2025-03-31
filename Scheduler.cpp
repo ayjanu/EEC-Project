@@ -8,6 +8,7 @@
 #include <iostream>
 #include <climits>
 #include <algorithm>
+
 // The following code was written by Ayan Jannu and Leul Teka and cleaned/simplified by Claude 3.7.
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
@@ -89,7 +90,7 @@ void Scheduler::Init() {
         }
     }
     
-    SimOutput("NVIDIA Scheduler initialized with " + std::to_string(activeMachines.size()) + " machines and " + std::to_string(vms.size()) + " VMs", 0);
+    SimOutput("Shortest-First Scheduler initialized with " + std::to_string(activeMachines.size()) + " machines and " + std::to_string(vms.size()) + " VMs", 0);
 }
 
 // Helper function to try assigning a task to a VM
