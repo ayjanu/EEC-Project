@@ -1,4 +1,8 @@
-// CLAUDE used for debugging and adding logging
+//
+//  Scheduler.cpp
+//  CloudSim
+//  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
+//
 #include "Scheduler.hpp"
 #include <string>
 #include <chrono>
@@ -8,7 +12,11 @@
 #include <climits>
 #include <algorithm>
 #include <utility>
-#include "Internal_Interfaces.h"
+
+
+// The following code was written by Ayan Jannu and Leul Teka and cleaned/simplified by Claude 3.7.
+// Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
+// describing the processes being carried out as well as combining redudant code into helper functions.
 
 static Scheduler scheduler;
 
