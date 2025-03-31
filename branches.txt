@@ -3,7 +3,7 @@ e-eco
 nvidia
     - All gas. No brakes. Finish tasks as fast as possible using the maximum resources.
 pmap
-    - Tasks are assigned using the parallel MapReduce strategy aiming for balanced allocation across machines.
+    - A dynamic, SLA-aware resource scheduler that assigns tasks to VMs based on urgency, resource compatibility, and load.
 round-robin
     - Every machine gets their turn to take a task and they keep doing it in that order until done.
 shortest-first
