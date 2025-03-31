@@ -270,6 +270,7 @@ bool Scheduler::AssignTaskToVM(TaskId_t task_id, Time_t now) {
    }
   
    VMId_t targetVM = VMId_t(-1);
+   VMId_t gpuVM = VMId_t(-1);
    unsigned lowestTaskCount = UINT_MAX;
   
    // First check VMs of the required type
@@ -304,6 +305,7 @@ bool Scheduler::AssignTaskToVM(TaskId_t task_id, Time_t now) {
                else if (info.active_tasks.size() < lowestTaskCount) {
                    lowestTaskCount = info.active_tasks.size();
                    targetVM = vm;
+                   if (machineInfo.gpus) gpuVM = vm;
                }
            }
        }
@@ -315,6 +317,8 @@ bool Scheduler::AssignTaskToVM(TaskId_t task_id, Time_t now) {
        if (vmInfo.machine_id == MachineId_t(-1)) {
            return false;
        }
+       MachineInfo_t mi = Machine_GetInfo(vmInfo.machine_id);
+       if (!mi.gpus && gpuVM != (VMId_t)-1) targetVM = gpuVM;
        VM_AddTask(targetVM, task_id, priority);
       
        // If this is a high-priority task, ensure the machine is at maximum frequency
