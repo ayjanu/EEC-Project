@@ -4,23 +4,18 @@
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
 //
 #include "Scheduler.hpp"
-#include "Internal_Interfaces.h"
 #include <string>
 #include <iostream>
 #include <climits>
 #include <algorithm>
-
 // The following code was written by Ayan Jannu and Leul Teka and cleaned/simplified by Claude 3.7.
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
-
 /*
- * Similar to how NVIDIA keeps all their machines powered on and running at full voltage and frequency
- * in order to finish large workloads as fast as possible, we use the same policy. All machines get an 
- * assortment of VMs during Init and there is no need to change this because we count on the necessary
- * requirements freeing up. SLA warnings and memory warnings will be dealt with when the resources free.
+ * We use the shortest-first scheduling policy to get all task requests and sort them in order of target completion time.
+ * The shortest runtimes get executed first, regardless of other parameters, in the hopes of mitigating SLA
+ * violations as simply and fairly to all tasks as possible.
  */
-
 // Global Scheduler instance
 static Scheduler scheduler;
 
@@ -161,20 +156,31 @@ bool Scheduler::AssignTaskToVM(TaskId_t task_id, Time_t now) {
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
-    // Attempt to assign the task immediately.
-    // If no suitable VM is found, add the task to pendingTasks.
-    if (!AssignTaskToVM(task_id, now)) {
-        pendingTasks.insert(task_id);
-    }
+    // Always add new tasks to pendingTasks first
+    pendingTasksQueue.push(task_id);
 }
 
 void Scheduler::PeriodicCheck(Time_t now) {
-    // Try to assign pending tasks to VMs
-    for (auto it = pendingTasks.begin(); it != pendingTasks.end(); ) {
-        if (AssignTaskToVM(*it, now)) {
-            it = pendingTasks.erase(it);
+    // First, move all tasks from the queue to the priority queue
+    while (!pendingTasksQueue.empty()) {
+        TaskId_t task_id = pendingTasksQueue.front();
+        pendingTasksQueue.pop();
+        
+        // Add to the priority queue, which sorts by target_completion
+        sortedPendingTasks.push(task_id);
+    }
+    
+    // Try to assign pending tasks to VMs in order of target_completion
+    while (!sortedPendingTasks.empty()) {
+        TaskId_t task_id = sortedPendingTasks.top();
+        
+        if (AssignTaskToVM(task_id, now)) {
+            // Task was successfully assigned, remove from queue
+            sortedPendingTasks.pop();
         } else {
-            ++it;
+            // If we can't assign the highest priority task, we probably can't assign any
+            // Keep it in the queue and try again later
+            break;
         }
     }
 }
@@ -201,6 +207,10 @@ void Scheduler::Shutdown(Time_t time) {
     machinesByCPU.clear();
     vmsByType.clear();
     vmsByMachine.clear();
+    
+    // Clear the task queues
+    while (!pendingTasksQueue.empty()) pendingTasksQueue.pop();
+    while (!sortedPendingTasks.empty()) sortedPendingTasks.pop();
     
     SimOutput("SimulationComplete(): Finished!", 4);
     SimOutput("SimulationComplete(): Time is " + std::to_string(time), 4);

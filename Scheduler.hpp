@@ -10,9 +10,19 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <queue>
 
 #include "Interfaces.h"
 #include "SimTypes.h"
+
+// Custom comparator for sorting tasks by target completion time
+struct TaskCompare {
+    bool operator()(TaskId_t a, TaskId_t b) const {
+        Time_t targetA = GetTaskInfo(a).target_completion;
+        Time_t targetB = GetTaskInfo(b).target_completion;
+        return targetA > targetB; // Sort in ascending order (earlier deadlines first)
+    }
+};
 
 class Scheduler {
 public:
@@ -42,6 +52,10 @@ public:
     void Shutdown(Time_t time);
     void TaskComplete(Time_t now, TaskId_t task_id);
     
+    // Make these public so they can be accessed by the global functions
+    std::map<VMType_t, std::set<VMId_t>> vmsByType;
+    std::map<MachineId_t, std::set<VMId_t>> vmsByMachine;
+    
 private:
     // Thresholds for underload/overload detection
     const double UNDERLOAD_THRESHOLD = 0.3;  // 30% utilization
@@ -52,16 +66,18 @@ private:
     
     // Track which machines are powered on
     std::set<MachineId_t> activeMachines;
-    std::set<TaskId_t> pendingTasks;
     
     // Lists of VMs and machines
     std::vector<VMId_t> vms;
     std::vector<MachineId_t> machines;
 
     std::map<CPUType_t, std::set<MachineId_t>> machinesByCPU;
-    std::map<VMType_t, std::set<VMId_t>> vmsByType;
-    std::map<MachineId_t, std::set<VMId_t>> vmsByMachine;
-
+    
+    // Queue for incoming tasks
+    std::queue<TaskId_t> pendingTasksQueue;
+    
+    // Priority queue for tasks sorted by target_completion
+    std::priority_queue<TaskId_t, std::vector<TaskId_t>, TaskCompare> sortedPendingTasks;
 };
 
 #endif /* Scheduler_hpp */
