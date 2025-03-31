@@ -34,78 +34,76 @@ bool HasHighPriorityTasks(MachineId_t machine_id) {
 
 void Scheduler::Init() {
     unsigned totalMachines = Machine_GetTotal();
-    std::map<CPUType_t, std::vector<MachineId_t>> machinesByCPU;
-    std::vector<std::pair<unsigned, MachineId_t>> machineEfficiencies;
+    
+    // Gather all machines and organize by CPU type
     for (unsigned i = 0; i < totalMachines; i++) {
         MachineId_t machineId = MachineId_t(i);
         machines.push_back(machineId);
-        try {
-            MachineInfo_t info = Machine_GetInfo(machineId);
-            CPUType_t cpuType = info.cpu;
-            machinesByCPU[cpuType].push_back(machineId);
-            if (!info.s_states.empty() && info.s_states.size() > S0) {
-                machineEfficiencies.push_back({info.s_states[S0], machineId});
-            } else {
-                machineEfficiencies.push_back({UINT_MAX, machineId});
-            }
-            if (info.s_state == S0) {
-                activeMachines.insert(machineId);
-                machineUtilization[machineId] = 0.0;
-            } else {
-                machineUtilization[machineId] = 0.0;
-            }
-        } catch (...) {
-            SimOutput("Init: Error getting info for machine " + std::to_string(machineId), 1);
+        MachineInfo_t info = Machine_GetInfo(machineId);
+        CPUType_t cpuType = info.cpu;
+        
+        // Update the machinesByCPU map
+        machinesByCPU[cpuType].insert(machineId);
+        
+        // Set all cores to maximum performance
+        for (unsigned j = 0; j < info.num_cpus; j++) {
+            Machine_SetCorePerformance(machineId, j, P0);
+        }
+        
+        activeMachines.insert(machineId);
+    }
+    
+    // Create 4 VMs per machine with appropriate VM types based on CPU type
+    for (MachineId_t machineId : machines) {
+        MachineInfo_t info = Machine_GetInfo(machineId);
+        CPUType_t cpuType = info.cpu;
+        std::vector<VMId_t> machineVMs;
+        
+        // Create VMs based on CPU type capabilities
+        if (cpuType == ARM || cpuType == X86) {
+            // ARM and X86 can host WIN VMs
+            VMId_t win1 = VM_Create(WIN, cpuType);
+            VMId_t win2 = VM_Create(WIN, cpuType);
+            VMId_t linux1 = VM_Create(LINUX, cpuType);
+            VMId_t linux2 = VM_Create(LINUX_RT, cpuType);
+            
+            machineVMs = {win1, win2, linux1, linux2};
+        } 
+        else if (cpuType == POWER) {
+            // POWER can host AIX VMs
+            VMId_t aix1 = VM_Create(AIX, cpuType);
+            VMId_t aix2 = VM_Create(AIX, cpuType);
+            VMId_t linux1 = VM_Create(LINUX, cpuType);
+            VMId_t linux2 = VM_Create(LINUX_RT, cpuType);
+            
+            machineVMs = {aix1, aix2, linux1, linux2};
+        } 
+        else {
+            // For any other CPU types, create only LINUX and LINUX_RT VMs
+            VMId_t linux1 = VM_Create(LINUX, cpuType);
+            VMId_t linux2 = VM_Create(LINUX, cpuType);
+            VMId_t linux3 = VM_Create(LINUX_RT, cpuType);
+            VMId_t linux4 = VM_Create(LINUX_RT, cpuType);
+            
+            machineVMs = {linux1, linux2, linux3, linux4};
+        }
+        
+        // Attach VMs to the machine and update tracking data structures
+        for (VMId_t vm : machineVMs) {
+            vms.push_back(vm);
+            VM_Attach(vm, machineId);
+            
+            // Update the new tracking maps
+            VMInfo_t vmInfo = VM_GetInfo(vm);
+            vmsByType[vmInfo.vm_type].insert(vm);
+            vmsByMachine[machineId].insert(vm);
         }
     }
-    std::sort(machineEfficiencies.begin(), machineEfficiencies.end());
-    for (const auto& pair : machineEfficiencies) {
-        sortedMachinesByEfficiency.push_back(pair.second);
-    }
-    unsigned initial_vms_per_type =  std::min(machines.size(), activeMachines.size() / (unsigned)machinesByCPU.size());;
-    for (const auto &pair : machinesByCPU) {
-        CPUType_t cpuType = pair.first;
-        const std::vector<MachineId_t> &machinesWithCPU = pair.second;
-        unsigned vms_created = 0;
-        for (MachineId_t efficient_machine_id : sortedMachinesByEfficiency) {
-            if (vms_created >= initial_vms_per_type) break;
-            bool correct_cpu = false;
-            for (MachineId_t m_id : machinesWithCPU) {
-                if (m_id == efficient_machine_id) {
-                    correct_cpu = true;
-                    break;
-                }
-            }
-            if (!correct_cpu) continue;
-            if (activeMachines.count(efficient_machine_id)) {
-                try {
-                    MachineInfo_t mInfo = Machine_GetInfo(efficient_machine_id);
-                    if (mInfo.memory_used + VM_MEMORY_OVERHEAD <= mInfo.memory_size) {
-                        VMId_t vm = VM_Create(LINUX, cpuType);
-                        vms.push_back(vm);
-                        VM_Attach(vm, efficient_machine_id);
-                        vms_created++;
-                    }
-                } catch (...) {
-                    SimOutput("Init: Failed to create/attach initial VM on " + std::to_string(efficient_machine_id), 2);
-                }
-            }
-        }
-    }
-    SimOutput("Init: Scheduler initialized with migration support.", 2);
+    
+    SimOutput("Round Robin Scheduler initialized with " + std::to_string(activeMachines.size()) + " machines and " + std::to_string(vms.size()) + " VMs", 0);
 }
 
-bool Scheduler::SafeRemoveTask(VMId_t vm, TaskId_t task) {
-    try {
-        VM_RemoveTask(vm, task);
-        return true;
-    } catch (const std::runtime_error& e) {
-        SimOutput("SafeRemoveTask failed for VM " + std::to_string(vm) + ", Task " + std::to_string(task) + ": " + e.what(), 2);
-    } catch (...) {
-        SimOutput("SafeRemoveTask failed for VM " + std::to_string(vm) + ", Task " + std::to_string(task) + ": Unknown error", 2);
-    }
-    return false;
-}
+
 
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
@@ -234,37 +232,7 @@ void HandleTaskCompletion(Time_t time, TaskId_t task_id){
     scheduler.TaskComplete(time, task_id);
 }
 
-MachineId_t Scheduler::FindMigrationTarget(VMId_t vm, Time_t now) {
-    VMInfo_t vmInfo = VM_GetInfo(vm);
-    CPUType_t required_cpu = vmInfo.cpu;
-    unsigned total_mem_needed = VM_MEMORY_OVERHEAD;
-    for (TaskId_t task : vmInfo.active_tasks) {
-        total_mem_needed += GetTaskMemory(task);
-    }
-    for (MachineId_t machine : sortedMachinesByEfficiency) {
-        if (machine == vmInfo.machine_id) continue;
-        try {
-            MachineInfo_t info = Machine_GetInfo(machine);
-            if (info.cpu != required_cpu) continue;
-            if (info.s_state != S0) {
-                if (!activeMachines.count(machine)) {
-                    Machine_SetState(machine, S0);
-                    activeMachines.insert(machine);
-                    machineUtilization[machine] = 0.0;
-                }
-                continue;
-            }
-            if (info.memory_used + total_mem_needed > info.memory_size) continue;
-            double util = machineUtilization[machine];
-            if (util < OVERLOAD_THRESHOLD) {
-                SimOutput("FindMigrationTarget: Selected machine " + std::to_string(machine) + " for VM " + std::to_string(vm), 3);
-                return machine;
-            }
-        } catch (...) {}
-    }
-    SimOutput("FindMigrationTarget: No suitable target found for VM " + std::to_string(vm), 2);
-    return MachineId_t(-1);
-}
+
 
 void MemoryWarning(Time_t time, MachineId_t machine_id) {
     SimOutput("MemoryWarning: Memory pressure detected on machine " + std::to_string(machine_id) + " at time " + std::to_string(time), 1);
@@ -367,18 +335,13 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
         } else if (currentState == S5) {
             SimOutput("StateChangeComplete: Machine " + std::to_string(machine_id) + " is now OFF (S5). Removing from active set.", 2);
             scheduler.DeactivateMachine(machine_id);
-            scheduler.machineUtilization[machine_id] = 0.0;
             needs_periodic_check = true;
         } else {
             SimOutput("StateChangeComplete: Machine " + std::to_string(machine_id) + " entered intermediate state " + std::to_string(currentState), 3);
-            if (currentState >= S1 && currentState <= S4) {
-                scheduler.machineUtilization[machine_id] = 0.0;
-            }
         }
     } catch (...) {
         SimOutput("StateChangeComplete: Error getting info for machine " + std::to_string(machine_id) + ". Removing from active set as precaution.", 1);
         scheduler.DeactivateMachine(machine_id);
-        scheduler.machineUtilization[machine_id] = 0.0;
         needs_periodic_check = true;
     }
     if (needs_periodic_check) {
@@ -412,15 +375,6 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
             MachineInfo_t machInfo = Machine_GetInfo(taskMachine);
             if (machInfo.s_state == S0 && machInfo.p_state != P0) {
                 Machine_SetCorePerformance(taskMachine, 0, P0);
-            }
-            double util = scheduler.machineUtilization[taskMachine];
-            if (util > scheduler.OVERLOAD_THRESHOLD) {
-                MachineId_t target = scheduler.FindMigrationTarget(taskVM, time);
-                if (target != MachineId_t(-1)) {
-                    SimOutput("SLAWarning: Migrating VM " + std::to_string(taskVM) + " to " + std::to_string(target) + " due to overload", 2);
-                    scheduler.pendingMigrations[taskVM] = target;
-                    VM_Migrate(taskVM, target);
-                }
             }
         } else if (slaType == SLA2 && GetTaskPriority(task_id) == LOW_PRIORITY) {
             SetTaskPriority(task_id, MID_PRIORITY);
