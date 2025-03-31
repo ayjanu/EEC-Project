@@ -21,7 +21,6 @@ public:
     bool IsMachineActive(MachineId_t machine) const { 
         return activeMachines.find(machine) != activeMachines.end(); 
     }
-    bool SafeRemoveTask(VMId_t vm, TaskId_t task);
     void ActivateMachine(MachineId_t machine) {
         activeMachines.insert(machine);
         machineUtilization[machine] = 0.0;
@@ -33,7 +32,6 @@ public:
     void AddVM(VMId_t vm) {
         vms.push_back(vm);
     }
-    void ConsolidateVMs(Time_t now);
     bool AssignTaskToVM(TaskId_t task_id, Time_t now);
     
     Scheduler() {}
@@ -59,6 +57,10 @@ private:
     // Lists of VMs and machines
     std::vector<VMId_t> vms;
     std::vector<MachineId_t> machines;
+
+    std::map<CPUType_t, std::set<MachineId_t>> machinesByCPU;
+    std::map<VMType_t, std::set<VMId_t>> vmsByType;
+    std::map<MachineId_t, std::set<VMId_t>> vmsByMachine;
 
 };
 
