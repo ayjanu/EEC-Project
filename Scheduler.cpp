@@ -10,7 +10,9 @@
 #include <utility>
 #include "Internal_Interfaces.h"
 
+
 static Scheduler scheduler;
+static int rr_index = 0;
 
 bool HasHighPriorityTasks(MachineId_t machine_id) {
     for (VMId_t vm : scheduler.GetVMs()) {
@@ -60,7 +62,7 @@ void Scheduler::Init() {
     for (const auto& pair : machineEfficiencies) {
         sortedMachinesByEfficiency.push_back(pair.second);
     }
-    unsigned initial_vms_per_type = 500;
+    unsigned initial_vms_per_type =  std::min(machines.size(), activeMachines.size() / (unsigned)machinesByCPU.size());;
     for (const auto &pair : machinesByCPU) {
         CPUType_t cpuType = pair.first;
         const std::vector<MachineId_t> &machinesWithCPU = pair.second;
@@ -105,171 +107,73 @@ bool Scheduler::SafeRemoveTask(VMId_t vm, TaskId_t task) {
     return false;
 }
 
+
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
-    CPUType_t required_cpu = RequiredCPUType(task_id);
-    VMType_t required_vm = RequiredVMType(task_id);
-    SLAType_t sla_type = RequiredSLA(task_id);
-    unsigned required_mem = GetTaskMemory(task_id);
-    TaskInfo_t tindo = GetTaskInfo(task_id);
-    bool urgent = false;
-    if (tindo.target_completion - (uint64_t)now <= 12000000) urgent = true;
-    Priority_t priority;
-    switch (sla_type) {
-        case SLA0: priority = HIGH_PRIORITY; break;
-        case SLA1: priority = MID_PRIORITY; break;
-        case SLA2: priority = LOW_PRIORITY; break;
-        case SLA3:
-        default:   priority = LOW_PRIORITY; break;
-    }
-    if (urgent) priority = HIGH_PRIORITY;
-    VMId_t target_vm = VMId_t(-1);
-    unsigned lowest_task_count = UINT_MAX;
-    VMId_t least_loaded_compatible_vm = VMId_t(-1);
-    VMId_t idle_compatible_vm = VMId_t(-1);
-    for (VMId_t vm : vms) {
-        if (pendingMigrations.find(vm) != pendingMigrations.end()) {
-            SimOutput("NewTask " + std::to_string(task_id) + ": Skipping VM " + std::to_string(vm) + " due to pending migration.", 4);
-            continue;
-        }
-        try {
+    TaskInfo_t taskInfo = GetTaskInfo(task_id);
+    SimOutput("Scheduler::NewTask(): Handling new task " + std::to_string(task_id), 3);
+
+    unsigned totalMachines = Machine_GetTotal();
+    for (unsigned i = 0; i < totalMachines; i++) {
+        unsigned index = (rr_index + i) % totalMachines;
+        MachineId_t machineId = MachineId_t(index);
+        MachineInfo_t machineInfo = Machine_GetInfo(machineId);
+
+        if (machineInfo.s_state != S0) continue;
+        if (machineInfo.cpu != taskInfo.required_cpu) continue;
+        if (machineInfo.memory_used + taskInfo.required_memory > machineInfo.memory_size) continue;
+
+        // Inline FindOrCreateVM logic
+        VMId_t vmId = VMId_t(-1);
+        for (VMId_t vm : vms) {
             VMInfo_t vmInfo = VM_GetInfo(vm);
-            if (vmInfo.machine_id == MachineId_t(-1)) continue;
-            MachineInfo_t machInfo = Machine_GetInfo(vmInfo.machine_id);
-            if (machInfo.s_state != S0) continue;
-            if (vmInfo.cpu == required_cpu && vmInfo.vm_type == required_vm) {
-                if (machInfo.memory_used + required_mem <= machInfo.memory_size) {
-                    if (vmInfo.active_tasks.empty()) {
-                        idle_compatible_vm = vm;
-                        if (sla_type == SLA0 || sla_type == SLA1) {
-                            target_vm = idle_compatible_vm;
-                            break;
-                        }
-                    }
-                    if (vmInfo.active_tasks.size() < lowest_task_count) {
-                        lowest_task_count = vmInfo.active_tasks.size();
-                        least_loaded_compatible_vm = vm;
-                    }
-                }
+            if (vmInfo.machine_id == machineId && vmInfo.vm_type == taskInfo.required_vm) {
+                vmId = vm;
+                break;
             }
-        } catch (...) {}
-    }
-    if (target_vm == VMId_t(-1)) {
-        if (idle_compatible_vm != VMId_t(-1)) {
-            target_vm = idle_compatible_vm;
-        } else if (least_loaded_compatible_vm != VMId_t(-1)) {
-            target_vm = least_loaded_compatible_vm;
+        }
+        if (vmId == VMId_t(-1)) {
+            vmId = VM_Create(taskInfo.required_vm, taskInfo.required_cpu);
+            VM_Attach(vmId, machineId);
+            vms.push_back(vmId);
+        }
+
+        if (vmId != VMId_t(-1)) {
+            VM_AddTask(vmId, task_id, taskInfo.priority);
+            SimOutput("Scheduler::NewTask(): Assigned task " + std::to_string(task_id) +
+                      " to VM " + std::to_string(vmId), 2);
+            rr_index = (index + 1) % totalMachines;
+            return;
         }
     }
-    if (target_vm == VMId_t(-1)) {
-        MachineId_t target_machine = MachineId_t(-1);
-        bool powered_on_new_machine = false;
-        for (MachineId_t machine : sortedMachinesByEfficiency) {
-            if (activeMachines.count(machine)) {
-                try {
-                    MachineInfo_t info = Machine_GetInfo(machine);
-                    if (info.s_state != S0) continue;
-                    if (info.cpu == required_cpu && (info.memory_used + required_mem + VM_MEMORY_OVERHEAD <= info.memory_size)) {
-                        double current_utilization = machineUtilization[machine];
-                        if ((sla_type == SLA0 || sla_type == SLA1) && current_utilization > 0.5) continue;
-                        if (current_utilization > OVERLOAD_THRESHOLD) continue;
-                        target_machine = machine;
-                        break;
-                    }
-                } catch (...) {}
-            }
-        }
-        if (target_machine == MachineId_t(-1)) {
-            for (MachineId_t machine : sortedMachinesByEfficiency) {
-                if (!activeMachines.count(machine)) {
-                    try {
-                        MachineInfo_t info = Machine_GetInfo(machine);
-                        if (info.cpu == required_cpu && (required_mem + VM_MEMORY_OVERHEAD <= info.memory_size)) {
-                            Machine_SetState(machine, S0);
-                            target_machine = machine;
-                            powered_on_new_machine = true;
-                            break;
-                        }
-                    } catch (...) {}
-                }
-            }
-        }
-        if (target_machine != MachineId_t(-1)) {
-            try {
-                target_vm = VM_Create(required_vm, required_cpu);
-                vms.push_back(target_vm);
-                if (!powered_on_new_machine) {
-                    VM_Attach(target_vm, target_machine);
-                }
-            } catch (...) {
-                SimOutput("NewTask " + std::to_string(task_id) + ": VM Create/Attach failed on machine " + std::to_string(target_machine), 2);
-                if (target_vm != VMId_t(-1)) {
-                    vms.erase(std::remove(vms.begin(), vms.end(), target_vm), vms.end());
-                }
-                target_vm = VMId_t(-1);
-            }
-        }
+
+    for (unsigned i = 0; i < totalMachines; i++) {
+        unsigned index = (rr_index + i) % totalMachines;
+        MachineId_t machineId = MachineId_t(index);
+        MachineInfo_t machineInfo = Machine_GetInfo(machineId);
+
+        if (machineInfo.s_state != S5) continue;
+        if (machineInfo.cpu != taskInfo.required_cpu) continue;
+
+        Machine_SetState(machineId, S0);
+        VMId_t newVmId = VM_Create(taskInfo.required_vm, taskInfo.required_cpu);
+        VM_Attach(newVmId, machineId);
+        VM_AddTask(newVmId, task_id, taskInfo.priority);
+
+        vms.push_back(newVmId);
+        machines.push_back(machineId);
+
+        SimOutput("Scheduler::NewTask(): Activated machine " + std::to_string(machineId) +
+                  " and assigned task " + std::to_string(task_id), 2);
+        rr_index = (index + 1) % totalMachines;
+        return;
     }
-    if (target_vm != VMId_t(-1)) {
-        try {
-            VMInfo_t vmInfo = VM_GetInfo(target_vm);
-            if (vmInfo.machine_id == MachineId_t(-1)) {
-                SimOutput("NewTask " + std::to_string(task_id) + ": VM " + std::to_string(target_vm) + " not attached yet.", 2);
-                return;
-            }
-            MachineInfo_t machInfo = Machine_GetInfo(vmInfo.machine_id);
-            if (machInfo.s_state != S0) return;
-            if (machInfo.memory_used + required_mem <= machInfo.memory_size) {
-                VM_AddTask(target_vm, task_id, priority);
-                if (sla_type == SLA0 || sla_type == SLA1) {
-                    Machine_SetCorePerformance(vmInfo.machine_id, 0, P0);
-                }
-            } else {
-                MemoryWarning(now, vmInfo.machine_id);
-            }
-        } catch (...) {
-            SimOutput("NewTask " + std::to_string(task_id) + ": Failed to add task to VM " + std::to_string(target_vm), 2);
-        }
-    }
+
+    SimOutput("Scheduler::NewTask(): Unable to assign task " + std::to_string(task_id), 1);
 }
 
+
 void Scheduler::PeriodicCheck(Time_t now) {
-    for (MachineId_t machine : machines) {
-        if (activeMachines.count(machine)) {
-            try {
-                MachineInfo_t info = Machine_GetInfo(machine);
-                if (info.s_state == S0) {
-                    double utilization = info.num_cpus > 0 ? static_cast<double>(info.active_tasks) / info.num_cpus : 0.0;
-                    machineUtilization[machine] = utilization;
-                } else {
-                    machineUtilization[machine] = 0.0;
-                }
-            } catch (...) {
-                activeMachines.erase(machine);
-                machineUtilization[machine] = 0.0;
-            }
-        } else {
-            machineUtilization[machine] = 0.0;
-        }
-    }
-    for (MachineId_t machine : activeMachines) {
-        try {
-            MachineInfo_t info = Machine_GetInfo(machine);
-            if (info.s_state != S0) continue;
-            CPUPerformance_t targetPState = P3;
-            bool highPri = HasHighPriorityTasks(machine);
-            if (highPri) {
-                targetPState = P0;
-            } else if (info.active_tasks > 0) {
-                double util = machineUtilization[machine];
-                if (util > 0.75) targetPState = P0;
-                else if (util > 0.3) targetPState = P1;
-                else targetPState = P2;
-            }
-            if (info.p_state != targetPState) {
-                Machine_SetCorePerformance(machine, 0, targetPState);
-            }
-        } catch (...) {}
-    }
+    
 }
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
