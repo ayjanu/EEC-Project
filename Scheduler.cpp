@@ -1,9 +1,3 @@
-//
-//  Scheduler.cpp
-//  CloudSim
-//  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-//
-
 #include "Scheduler.hpp"
 #include <string>
 #include <chrono>
@@ -18,6 +12,12 @@
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
 
+/**
+ * A basic, stack-based first-fit scheduler:
+ *  - Prefills 50 VMs on initialization.
+ *  - Uses a stack to assign tasks to the first VM that meets CPU/memory constraints.
+ *  - If SLA0 can't find a suitable VM, we create a new VM.
+ */
 static Scheduler scheduler;
 
 static bool HasHighPriorityTasks(MachineId_t machine_id) {
@@ -47,19 +47,11 @@ static unsigned GetVMLoad(VMId_t vm_id) {
 
 void Scheduler::Init() {
     unsigned totalMachines = Machine_GetTotal();
-    std::map<CPUType_t, std::vector<MachineId_t>> machinesByCPU;
-    std::vector<std::pair<unsigned, MachineId_t>> machineEfficiencies;
     for (unsigned i = 0; i < totalMachines; i++) {
         MachineId_t machineId = MachineId_t(i);
         machines.push_back(machineId);
         try {
             MachineInfo_t info = Machine_GetInfo(machineId);
-            machinesByCPU[info.cpu].push_back(machineId);
-            if (!info.s_states.empty() && info.s_states.size() > S0) {
-                machineEfficiencies.push_back({info.s_states[S0], machineId});
-            } else {
-                machineEfficiencies.push_back({UINT_MAX, machineId});
-            }
             if (info.s_state == S0) {
                 activeMachines.insert(machineId);
                 machineUtilization[machineId] = 0.0;
@@ -70,14 +62,9 @@ void Scheduler::Init() {
             SimOutput("Init: Error retrieving machine info for ID=" + std::to_string(i), 1);
         }
     }
-    std::sort(machineEfficiencies.begin(), machineEfficiencies.end(),
-              [](auto &a, auto &b){ return a.first < b.first; });
-    for (auto &pair : machineEfficiencies) {
-        sortedMachinesByEfficiency.push_back(pair.second);
-    }
     unsigned desired_prefill = 50;
     unsigned created = 0;
-    for (MachineId_t mach : sortedMachinesByEfficiency) {
+    for (MachineId_t mach : machines) {
         if (created >= desired_prefill) break;
         try {
             MachineInfo_t minfo = Machine_GetInfo(mach);
@@ -90,7 +77,7 @@ void Scheduler::Init() {
             }
         } catch (...) {}
     }
-    SimOutput("Init: Scheduler (load-aware) initialized, prefilled " + std::to_string(created) + " VMs.", 2);
+    SimOutput("Init: Scheduler (stack-based first-fit) initialized, prefilled " + std::to_string(created) + " VMs.", 2);
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
@@ -113,8 +100,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     if (urgent) priority = HIGH_PRIORITY;
 
     VMId_t target_vm = VMId_t(-1);
-    unsigned minLoad = UINT_MAX;
-    for (VMId_t vm : vms) {
+    for (VMId_t vm : vmStack) {
         if (pendingMigrations.find(vm) != pendingMigrations.end()) continue;
         try {
             VMInfo_t vmInfo = VM_GetInfo(vm);
@@ -123,11 +109,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
             MachineInfo_t machInfo = Machine_GetInfo(vmInfo.machine_id);
             if (machInfo.s_state != S0) continue;
             if (machInfo.memory_used + required_mem > machInfo.memory_size) continue;
-            unsigned load = (unsigned)vmInfo.active_tasks.size();
-            if (load < minLoad) {
-                minLoad   = load;
-                target_vm = vm;
-            }
+            target_vm = vm;
+            break; // First fit: stop at the first suitable VM
         } catch (...) {}
     }
     bool createFreshVM = false;
@@ -136,7 +119,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     }
     if (target_vm == VMId_t(-1) || createFreshVM) {
         MachineId_t chosen_machine = MachineId_t(-1);
-        for (MachineId_t m : sortedMachinesByEfficiency) {
+        for (MachineId_t m : machines) {
             try {
                 MachineInfo_t info = Machine_GetInfo(m);
                 if (info.s_state == S0 && info.cpu == required_cpu &&
