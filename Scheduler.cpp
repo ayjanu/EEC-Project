@@ -68,7 +68,7 @@ void Scheduler::Init() {
     for (const auto& pair : machineEfficiencies) {
         sortedMachinesByEfficiency.push_back(pair.second);
     }
-    unsigned initial_vms_per_type = 500;
+    unsigned initial_vms_per_type =  std::min(machines.size(), activeMachines.size() / machinesByCPU.size());
     for (const auto &pair : machinesByCPU) {
         CPUType_t cpuType = pair.first;
         const std::vector<MachineId_t> &machinesWithCPU = pair.second;
