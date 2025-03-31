@@ -14,6 +14,13 @@
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
 
+/*
+ * Similar to how NVIDIA keeps all their machines powered on and running at full voltage and frequency
+ * in order to finish large workloads as fast as possible, we use the same policy. All machines get an 
+ * assortment of VMs during Init and there is no need to change this because we count on the necessary
+ * requirements freeing up. SLA warnings and memory warnings will be dealt with when the resources free.
+ */
+
 // Global Scheduler instance
 static Scheduler scheduler;
 
