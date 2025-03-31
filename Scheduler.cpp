@@ -15,6 +15,13 @@
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
 
+/*
+ * The E-Eco scheduling policy involves maintaining as few active machines as possible. We keep a set of machines
+ * on standby in case more are needed, and a set of powered off machines in case a lot more are needed. Periodically,
+ * we check if machines can be put into standby or turned off. We use DVFS to keep machines energy use as efficient as
+ * possible. It seems to have minimal effect on SLA violations to use lower P-states.
+ */
+
 // Global Scheduler instance
 static Scheduler scheduler;
 
