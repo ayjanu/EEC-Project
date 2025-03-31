@@ -31,31 +31,31 @@ void Scheduler::Init() {
         }
     }
     
-    // Create VMs (up to 15 per CPU type) to handle the workload
+    // Create 3 VMs per machine to handle the workload
     for (const auto &pair : machinesByCPU) {
         CPUType_t cpuType = pair.first;
         const std::vector<MachineId_t> &machinesWithCPU = pair.second;
         if (machinesWithCPU.empty()) {
             continue;
         }
-        
-        unsigned numVMsToCreate = std::min(
-            static_cast<unsigned>(machinesWithCPU.size()),
-            15u
-        );
-        for (unsigned i = 0; i < numVMsToCreate; i++) {
+        for (unsigned i = 0; i < machinesWithCPU.size(); i++) {
             VMId_t vm = VM_Create(LINUX, cpuType);
+            VMId_t vm2 = VM_Create(LINUX, cpuType);
+            VMId_t vm3 = VM_Create(LINUX, cpuType);
             vms.push_back(vm);
-            
-            // Attach the VM to a machine
+            vms.push_back(vm2);
+            vms.push_back(vm3);
             MachineId_t machine = machinesWithCPU[i % machinesWithCPU.size()];
             VM_Attach(vm, machine);
+            VM_Attach(vm2, machine);
+            VM_Attach(vm3, machine);
             activeMachines.insert(machine);
             
             // Track utilization
             machineUtilization[machine] = 0.0;
         }
     }
+    SimOutput("NVIDIA Scheduler initialized with " + std::to_string(activeMachines.size()), 0);
 }
 
 // Helper function to try assigning a task to a VM
@@ -66,7 +66,12 @@ bool Scheduler::AssignTaskToVM(TaskId_t task_id, Time_t now) {
 
     // Determine task urgency and base priority
     bool urgent = (taskInfo.target_completion - static_cast<uint64_t>(now) <= 12000000);
-    Priority_t priority = HIGH_PRIORITY;
+    Priority_t priority = LOW_PRIORITY;
+    if (urgent) {
+        priority = HIGH_PRIORITY;
+    } else if (slaType == SLA0) {
+        priority = MID_PRIORITY;
+    }
 
     VMId_t targetVM = VMId_t(-1);
     unsigned lowestTaskCount = UINT_MAX;
@@ -167,7 +172,7 @@ void HandleTaskCompletion(Time_t time, TaskId_t task_id) {
 }
 
 void MemoryWarning(Time_t time, MachineId_t machine_id) {
-    SimOutput("MemoryWarning BRUH", 1);
+    
 }
 
 void SchedulerCheck(Time_t time) {
@@ -199,31 +204,5 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
 }
 
 void SLAWarning(Time_t time, TaskId_t task_id) {
-    SimOutput("SLAWarning ON GOD", 1);
-    SLAType_t slaType = RequiredSLA(task_id);
-
-    // Identify which VM/machine is running this task
-    VMId_t taskVM = VMId_t(-1);
-    MachineId_t taskMachine = MachineId_t(-1);
-    for (VMId_t vm : scheduler.GetVMs()) {
-        VMInfo_t vmInfo = VM_GetInfo(vm);
-        if (vmInfo.machine_id == MachineId_t(-1)) {
-            continue;
-        }
-        for (TaskId_t activeTask : vmInfo.active_tasks) {
-            if (activeTask == task_id) {
-                taskVM = vm;
-                taskMachine = vmInfo.machine_id;
-                break;
-            }
-        }
-        if (taskVM != VMId_t(-1)) {
-            break;
-        }
-    }
-    
-    // Example approach: elevate task priority if found
-    if (taskVM != VMId_t(-1)) {
-        SetTaskPriority(task_id, HIGH_PRIORITY);
-    }
+    SetTaskPriority(task_id, HIGH_PRIORITY);
 }
