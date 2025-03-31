@@ -41,6 +41,9 @@ public:
 
     void ConsolidateVMs(Time_t now);
     MachineId_t FindMigrationTarget(VMId_t vm, Time_t now);
+    void AddVM(VMId_t vm) {
+        vms.push_back(vm);
+    }
 
     // -------------- Internal Data Structures --------------
     std::vector<VMId_t>         vmStack;
@@ -52,6 +55,8 @@ public:
 
     std::map<VMId_t, MachineId_t> pendingMigrations;
     std::map<VMId_t, Time_t>      lastMigrationTime;
+    std::map<VMType_t, std::set<VMId_t>> vmsByType;
+    std::map<MachineId_t, std::set<VMId_t>> vmsByMachine;
     const Time_t                  MIGRATION_COOLDOWN = 1000000; // 1 second
 
     // Constants for possible P-state logic
