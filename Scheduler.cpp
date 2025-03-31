@@ -13,13 +13,10 @@
 #include <algorithm>
 #include <utility>
 
-
 // The following code was written by Ayan Jannu and Leul Teka and cleaned/simplified by Claude 3.7.
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
-
 static Scheduler scheduler;
-
 bool HasHighPriorityTasks(MachineId_t machine_id) {
     for (VMId_t vm : scheduler.GetVMs()) {
         try {
@@ -37,7 +34,6 @@ bool HasHighPriorityTasks(MachineId_t machine_id) {
     }
     return false;
 }
-
 void Scheduler::Init() {
     unsigned totalMachines = Machine_GetTotal();
     std::map<CPUType_t, std::vector<MachineId_t>> machinesByCPU;
@@ -68,39 +64,81 @@ void Scheduler::Init() {
     for (const auto& pair : machineEfficiencies) {
         sortedMachinesByEfficiency.push_back(pair.second);
     }
-    unsigned initial_vms_per_type =  std::min(machines.size(), activeMachines.size() / machinesByCPU.size());
-    for (const auto &pair : machinesByCPU) {
-        CPUType_t cpuType = pair.first;
-        const std::vector<MachineId_t> &machinesWithCPU = pair.second;
-        unsigned vms_created = 0;
-        for (MachineId_t efficient_machine_id : sortedMachinesByEfficiency) {
-            if (vms_created >= initial_vms_per_type) break;
-            bool correct_cpu = false;
-            for (MachineId_t m_id : machinesWithCPU) {
-                if (m_id == efficient_machine_id) {
-                    correct_cpu = true;
-                    break;
+    
+    // Create different VM assortments for each active machine based on CPU type
+    for (MachineId_t machineId : activeMachines) {
+        try {
+            MachineInfo_t info = Machine_GetInfo(machineId);
+            CPUType_t cpuType = info.cpu;
+            
+            // Check if there's enough memory for VMs
+            if (info.memory_used + VM_MEMORY_OVERHEAD * 4 <= info.memory_size) {
+                // Create VMs based on CPU type capabilities
+                if (cpuType == ARM || cpuType == X86) {
+                    // ARM and X86 can host WIN VMs
+                    VMId_t win1 = VM_Create(WIN, cpuType);
+                    VMId_t win2 = VM_Create(WIN, cpuType);
+                    VMId_t linux1 = VM_Create(LINUX, cpuType);
+                    VMId_t linux2 = VM_Create(LINUX_RT, cpuType);
+                    
+                    vms.push_back(win1);
+                    vms.push_back(win2);
+                    vms.push_back(linux1);
+                    vms.push_back(linux2);
+                    
+                    VM_Attach(win1, machineId);
+                    VM_Attach(win2, machineId);
+                    VM_Attach(linux1, machineId);
+                    VM_Attach(linux2, machineId);
+                    
+                    SimOutput("Init: Created 2 WIN, 1 LINUX, 1 LINUX_RT VMs on machine " + std::to_string(machineId), 3);
+                } 
+                else if (cpuType == POWER) {
+                    // POWER can host AIX VMs
+                    VMId_t aix1 = VM_Create(AIX, cpuType);
+                    VMId_t aix2 = VM_Create(AIX, cpuType);
+                    VMId_t linux1 = VM_Create(LINUX, cpuType);
+                    VMId_t linux2 = VM_Create(LINUX_RT, cpuType);
+                    
+                    vms.push_back(aix1);
+                    vms.push_back(aix2);
+                    vms.push_back(linux1);
+                    vms.push_back(linux2);
+                    
+                    VM_Attach(aix1, machineId);
+                    VM_Attach(aix2, machineId);
+                    VM_Attach(linux1, machineId);
+                    VM_Attach(linux2, machineId);
+                    
+                    SimOutput("Init: Created 2 AIX, 1 LINUX, 1 LINUX_RT VMs on machine " + std::to_string(machineId), 3);
+                } 
+                else {
+                    // For any other CPU types, create only LINUX and LINUX_RT VMs
+                    VMId_t linux1 = VM_Create(LINUX, cpuType);
+                    VMId_t linux2 = VM_Create(LINUX, cpuType);
+                    VMId_t linux3 = VM_Create(LINUX_RT, cpuType);
+                    VMId_t linux4 = VM_Create(LINUX_RT, cpuType);
+                    
+                    vms.push_back(linux1);
+                    vms.push_back(linux2);
+                    vms.push_back(linux3);
+                    vms.push_back(linux4);
+                    
+                    VM_Attach(linux1, machineId);
+                    VM_Attach(linux2, machineId);
+                    VM_Attach(linux3, machineId);
+                    VM_Attach(linux4, machineId);
+                    
+                    SimOutput("Init: Created 2 LINUX, 2 LINUX_RT VMs on machine " + std::to_string(machineId), 3);
                 }
             }
-            if (!correct_cpu) continue;
-            if (activeMachines.count(efficient_machine_id)) {
-                try {
-                    MachineInfo_t mInfo = Machine_GetInfo(efficient_machine_id);
-                    if (mInfo.memory_used + VM_MEMORY_OVERHEAD <= mInfo.memory_size) {
-                        VMId_t vm = VM_Create(LINUX, cpuType);
-                        vms.push_back(vm);
-                        VM_Attach(vm, efficient_machine_id);
-                        vms_created++;
-                    }
-                } catch (...) {
-                    SimOutput("Init: Failed to create/attach initial VM on " + std::to_string(efficient_machine_id), 2);
-                }
-            }
+        } catch (...) {
+            SimOutput("Init: Failed to create VMs for machine " + std::to_string(machineId), 2);
         }
     }
+    
     SimOutput("Init: Scheduler initialized with migration support.", 2);
 }
-
 bool Scheduler::SafeRemoveTask(VMId_t vm, TaskId_t task) {
     try {
         VM_RemoveTask(vm, task);
@@ -112,7 +150,6 @@ bool Scheduler::SafeRemoveTask(VMId_t vm, TaskId_t task) {
     }
     return false;
 }
-
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     CPUType_t required_cpu = RequiredCPUType(task_id);
     VMType_t required_vm = RequiredVMType(task_id);
@@ -239,7 +276,6 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         }
     }
 }
-
 void Scheduler::PeriodicCheck(Time_t now) {
     for (MachineId_t machine : machines) {
         if (activeMachines.count(machine)) {
@@ -279,11 +315,9 @@ void Scheduler::PeriodicCheck(Time_t now) {
         } catch (...) {}
     }
 }
-
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     SimOutput("TaskComplete: Task " + std::to_string(task_id) + " finished. Utilization update relies on PeriodicCheck.", 5);
 }
-
 void Scheduler::Shutdown(Time_t time) {
     SimOutput("Shutdown: Initiating simulation shutdown process.", 3);
     for(VMId_t vm : vms) {
@@ -300,7 +334,6 @@ void Scheduler::Shutdown(Time_t time) {
     SimOutput("SimulationComplete(): Finished!", 0);
     SimOutput("SimulationComplete(): Time is " + to_string(time), 0);
 }
-
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     auto it = pendingMigrations.find(vm_id);
     if (it != pendingMigrations.end()) {
@@ -323,21 +356,17 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     }
     PeriodicCheck(time);
 }
-
 void InitScheduler() {
     SimOutput("InitScheduler starting", 1);
     scheduler.Init();
     SimOutput("InitScheduler finished", 1);
 }
-
 void HandleNewTask(Time_t time, TaskId_t task_id) {
     scheduler.NewTask(time, task_id);
 }
-
 void HandleTaskCompletion(Time_t time, TaskId_t task_id){
     scheduler.TaskComplete(time, task_id);
 }
-
 MachineId_t Scheduler::FindMigrationTarget(VMId_t vm, Time_t now) {
     VMInfo_t vmInfo = VM_GetInfo(vm);
     CPUType_t required_cpu = vmInfo.cpu;
@@ -369,7 +398,6 @@ MachineId_t Scheduler::FindMigrationTarget(VMId_t vm, Time_t now) {
     SimOutput("FindMigrationTarget: No suitable target found for VM " + std::to_string(vm), 2);
     return MachineId_t(-1);
 }
-
 void MemoryWarning(Time_t time, MachineId_t machine_id) {
     SimOutput("MemoryWarning: Memory pressure detected on machine " + std::to_string(machine_id) + " at time " + std::to_string(time), 1);
     try {
@@ -406,15 +434,12 @@ void MemoryWarning(Time_t time, MachineId_t machine_id) {
         SimOutput("MemoryWarning: Error handling memory warning for machine " + std::to_string(machine_id), 1);
     }
 }
-
 void SchedulerCheck(Time_t time) {
     scheduler.PeriodicCheck(time);
 }
-
 void MigrationDone(Time_t time, VMId_t vm_id) {
     scheduler.MigrationComplete(time, vm_id);
 }
-
 void SimulationComplete(Time_t time) {
     std::cout << "SLA violation report" << std::endl;
     std::cout << "SLA0: " << GetSLAReport(SLA0) << "%" << std::endl;
@@ -426,7 +451,6 @@ void SimulationComplete(Time_t time) {
     SimOutput("SimulationComplete(): Final reporting done.", 0);
     scheduler.Shutdown(time);
 }
-
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     SimOutput("StateChangeComplete: Machine " + std::to_string(machine_id) + " state change finished at time " + std::to_string(time), 3);
     bool needs_periodic_check = false;
@@ -455,16 +479,72 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
                 } catch (...) {}
             }
             if (!hasVM) {
-                SimOutput("StateChangeComplete: No VM found on activated machine " + std::to_string(machine_id) + ". Creating default VM.", 3);
+                SimOutput("StateChangeComplete: No VM found on activated machine " + std::to_string(machine_id) + ". Creating VMs based on CPU type.", 3);
                 try {
-                    VMId_t newVM = VM_Create(LINUX, machineInfo.cpu);
-                    scheduler.AddVM(newVM);
-                    VM_Attach(newVM, machine_id);
-                    SimOutput("StateChangeComplete: Created and attached VM " + std::to_string(newVM) + " to machine " + std::to_string(machine_id), 3);
+                    CPUType_t cpuType = machineInfo.cpu;
+                    
+                    // Create VMs based on CPU type capabilities
+                    if (cpuType == ARM || cpuType == X86) {
+                        // ARM and X86 can host WIN VMs
+                        VMId_t win1 = VM_Create(WIN, cpuType);
+                        VMId_t win2 = VM_Create(WIN, cpuType);
+                        VMId_t linux1 = VM_Create(LINUX, cpuType);
+                        VMId_t linux2 = VM_Create(LINUX_RT, cpuType);
+                        
+                        scheduler.AddVM(win1);
+                        scheduler.AddVM(win2);
+                        scheduler.AddVM(linux1);
+                        scheduler.AddVM(linux2);
+                        
+                        VM_Attach(win1, machine_id);
+                        VM_Attach(win2, machine_id);
+                        VM_Attach(linux1, machine_id);
+                        VM_Attach(linux2, machine_id);
+                        
+                        SimOutput("StateChangeComplete: Created 2 WIN, 1 LINUX, 1 LINUX_RT VMs on machine " + std::to_string(machine_id), 3);
+                    } 
+                    else if (cpuType == POWER) {
+                        // POWER can host AIX VMs
+                        VMId_t aix1 = VM_Create(AIX, cpuType);
+                        VMId_t aix2 = VM_Create(AIX, cpuType);
+                        VMId_t linux1 = VM_Create(LINUX, cpuType);
+                        VMId_t linux2 = VM_Create(LINUX_RT, cpuType);
+                        
+                        scheduler.AddVM(aix1);
+                        scheduler.AddVM(aix2);
+                        scheduler.AddVM(linux1);
+                        scheduler.AddVM(linux2);
+                        
+                        VM_Attach(aix1, machine_id);
+                        VM_Attach(aix2, machine_id);
+                        VM_Attach(linux1, machine_id);
+                        VM_Attach(linux2, machine_id);
+                        
+                        SimOutput("StateChangeComplete: Created 2 AIX, 1 LINUX, 1 LINUX_RT VMs on machine " + std::to_string(machine_id), 3);
+                    } 
+                    else {
+                        // For any other CPU types, create only LINUX and LINUX_RT VMs
+                        VMId_t linux1 = VM_Create(LINUX, cpuType);
+                        VMId_t linux2 = VM_Create(LINUX, cpuType);
+                        VMId_t linux3 = VM_Create(LINUX_RT, cpuType);
+                        VMId_t linux4 = VM_Create(LINUX_RT, cpuType);
+                        
+                        scheduler.AddVM(linux1);
+                        scheduler.AddVM(linux2);
+                        scheduler.AddVM(linux3);
+                        scheduler.AddVM(linux4);
+                        
+                        VM_Attach(linux1, machine_id);
+                        VM_Attach(linux2, machine_id);
+                        VM_Attach(linux3, machine_id);
+                        VM_Attach(linux4, machine_id);
+                        
+                        SimOutput("StateChangeComplete: Created 2 LINUX, 2 LINUX_RT VMs on machine " + std::to_string(machine_id), 3);
+                    }
                 } catch (const std::runtime_error& e) {
-                    SimOutput("StateChangeComplete: Failed to create/attach default VM on " + std::to_string(machine_id) + ": " + e.what(), 2);
+                    SimOutput("StateChangeComplete: Failed to create/attach VMs on " + std::to_string(machine_id) + ": " + e.what(), 2);
                 } catch (...) {
-                    SimOutput("StateChangeComplete: Unknown error creating/attaching default VM on " + std::to_string(machine_id), 2);
+                    SimOutput("StateChangeComplete: Unknown error creating/attaching VMs on " + std::to_string(machine_id), 2);
                 }
             }
             needs_periodic_check = true;
@@ -489,7 +569,6 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
         scheduler.PeriodicCheck(time);
     }
 }
-
 void SLAWarning(Time_t time, TaskId_t task_id) {
     SimOutput("SLAWarning: SLA violation predicted for task " + std::to_string(task_id), 1);
     SLAType_t slaType = RequiredSLA(task_id);
