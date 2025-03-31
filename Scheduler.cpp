@@ -13,6 +13,15 @@
 #include <algorithm>
 #include <utility>
 
+/**
+ * A pMapper SLA-aware resource scheduler:
+ *  - Assigns tasks to idle or least-loaded VMs based on SLA urgency and memory fit.
+ *  - Dynamically powers on/off machines and adjusts P-states based on utilization.
+ *  - Reacts to SLA warnings with performance boosts or VM migrations.
+ *  - Periodically updates utilization metrics and performs opportunistic optimization.
+ */
+
+
 // The following code was written by Ayan Jannu and Leul Teka and cleaned/simplified by Claude 3.7.
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
