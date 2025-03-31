@@ -22,7 +22,7 @@ task class:
         GPU enabled: yes
         SLA type: SLA2
         CPU type: X86
-        Task type: ML
+        Task type: AI
         Seed: 937462
 }
 
@@ -37,7 +37,7 @@ task class:
         GPU enabled: no
         SLA type: SLA1
         CPU type: X86
-        Task type: BATCH
+        Task type: WEB
         Seed: 482937
 }
 

@@ -35,7 +35,7 @@ task class:
         GPU enabled: yes
         SLA type: SLA2
         CPU type: X86
-        Task type: ML
+        Task type: HPC
         Seed: 777777
 }
 
@@ -50,6 +50,6 @@ task class:
         GPU enabled: no
         SLA type: SLA1
         CPU type: X86
-        Task type: WEB
+        Task type: CRYPTO
         Seed: 123456
 }
