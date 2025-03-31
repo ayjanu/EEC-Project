@@ -35,6 +35,6 @@ task class:
         GPU enabled: no
         SLA type: SLA1
         CPU type: X86
-        Task type: DATABASE
+        Task type: CRYPTO
         Seed: 872394
 }

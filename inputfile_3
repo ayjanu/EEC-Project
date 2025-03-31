@@ -35,7 +35,7 @@ task class:
         GPU enabled: yes
         SLA type: SLA1
         CPU type: X86
-        Task type: ML
+        Task type: AI
         Seed: 715829
 }
 
