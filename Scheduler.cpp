@@ -17,6 +17,13 @@
 // Thank you to the LLM for helping with the logic of using maps to track VM allocation and writing comments
 // describing the processes being carried out as well as combining redudant code into helper functions.
 
+/**
+ * A Round Robin-based scheduler with VM type and SLA-awareness:
+ *  - Assigns tasks in round-robin order across machines that match required CPU, VM type, and memory constraints.
+ *  - Powers on S5 machines as a fallback if all active ones are full or incompatible.
+ *  - Tracks the round-robin index to ensure balanced machine selection over time.
+ */
+
 static Scheduler scheduler;
 static int rr_index = 0;
 
